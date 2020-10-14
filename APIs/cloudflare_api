@@ -1,0 +1,82 @@
+#!/bin/bash
+
+#domain=adwienn.com
+auth_email="X-Auth-Email: confident info";
+auth_key="X-Auth-Key: confident info";
+url="https://api.cloudflare.com/client/v4/";
+account_id="confident info";
+
+# send [method] [url] [query]
+function send() {
+	curl -X $1 "$url$2" \
+    -H "$auth_email" \
+    -H "$auth_key" \
+    -H "Content-Type: application/json" \
+    --data "$3"
+}
+
+# zone_id [domain]
+function zone_id() {
+	send GET "/zones?name=$1" | jq -r '.result | .[0] | .id'
+}
+
+# add_domain [domain]
+function add_domain() {
+	query_create=$(echo '{"name":"name","account":{"id":"id"},"jump_start":true}' | jq -c ".name = \"$1\" | .account.id = \"$account_id\"")
+	response=$(send POST zones $query_create)
+	id=$(echo $response | jq -rc '.result.id')
+	name_servers=$(echo $response | jq -rc '.result.name_servers')
+	echo '{"id":"'"$id"'","name_servers":'"$name_servers"'}'
+}
+
+# del_domain [domain]
+function del_domain() {
+	send DELETE "/zones/$(zone_id $1)"
+}
+
+# alalways_online_disable [domain]
+function always_online_disable() {
+	send PATCH "zones/$1/settings/always_online" '{"value":"off"}'
+}
+
+# add_dns_1 [domain] [ip] [name]
+function add_dns_1() {
+	end_url="zones/$(zone_id $1)/dns_records"
+	query=$(echo '{"type":"A","name":"domain","content":"ip","proxied":true}' | jq -c ".name=\"$3\" | .content=\"$2\"")
+	send POST $end_url $query
+}
+
+# del_dns [domain] [content]
+function del_dns() {
+	end_url="zones/$(zone_id $1)/dns_records"
+	dns_id="$(send GET "${end_url}?content=$2" | jq -rc '.result | .[] | .id')"
+	for i in $dns_id; do
+		send DELETE "${end_url}/$i"
+	done
+}
+
+# add_dns [domain] [ip]
+function add_dns() {
+	add_dns_1 $1 $2 $1
+	add_dns_1 $1 $2 "www"
+}
+
+NAME_API_USERNAME="confident";
+NAME_API_TOKEN="confiden";
+
+#set_nameservers $DOMAIN $type $name_servers(in case of cloudflare) ('cloudflare', 'default')
+function set_nameservers() {
+	if [ $2 == 'cloudflare' ]; then
+		curl -u "${NAME_API_USERNAME}:${NAME_API_TOKEN}" "https://api.name.com/v4/domains/${1}:setNameservers" -X POST --data '{"nameservers":'"$3"'}'
+	fi
+    if [ $2 == 'default' ]; then
+		curl -u "${NAME_API_USERNAME}:${NAME_API_TOKEN}" "https://api.name.com/v4/domains/${1}:setNameservers" -X POST --data '{"nameservers":["ns1.name.com","ns2.name.com", "ns3.name.com", "ns4.name.com"]}'
+	fi
+}
+
+del_domain 'dingjar.com'
+resp=$(add_domain 'dingjar.com')
+echo "$resp"
+ns=$(echo "$resp" | jq -rc '.name_servers')
+echo "$ns"
+set_nameservers 'dingjar.com' 'cloudflare' "$ns"
